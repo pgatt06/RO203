@@ -168,7 +168,7 @@ end
 
 
 function generateDataSet()
-    n=Int64(rand(3:7))
+    n=Int64(rand(4:7))
     Jeu,Contraintes =generate_MatricesFlèches(n)
 
     fichier = open(InstanceTest2.txt, "w")
