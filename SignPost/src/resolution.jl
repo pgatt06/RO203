@@ -90,10 +90,9 @@ Heuristically solve an instance
 """
 
 
-function heuristicSolve()
+function heuristicSolve(Contraintes_jeu,)
 
-    # TODO
-    println("In file resolution.jl, in method heuristicSolve(), TODO: fix input and output, define the model")
+    Solve_Heur(succ,Contraintes_jeu)
     
 end 
 """
