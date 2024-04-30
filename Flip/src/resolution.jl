@@ -1,5 +1,8 @@
 # This file contains methods to solve an instance (heuristically or with CPLEX)
 using CPLEX
+using JuMP
+
+include("io.jl")
 
 include("generation.jl")
 
