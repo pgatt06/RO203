@@ -7,6 +7,7 @@ using MathOptInterface
 
 include("generation.jl")
 include("io.jl")
+include("arbre.jl")
 
 TOL = 0.00001
 
