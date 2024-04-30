@@ -2,6 +2,10 @@
 include("io.jl")
 using Random
 
+using CPLEX
+using JuMP
+using MathOptInterface
+
 """
 Generate an n*n grid with a given density
 
@@ -40,31 +44,54 @@ function generateCheminHamiltonien(n::Int64)
         end
     end
 
-    #si on veut forcer le départ du chemin à la première case
-    Chemin=[1]
 
-    #si on veut commencer par un point aléatoire
-    #Chemin=Int64[rand(1:n^2)]
-    #def du chemin initial
-    Chemin_0=Chemin
+    m = Model(CPLEX.Optimizer)
 
-    #on remplit le chemin jusqu'à ce qu'il soit de taille n^2
-    while length(Chemin) < n^2
-        # Trouver tous les sommets accessibles qui sont adjacents au dernier sommet du chemin
-        sommet_pas_chemin=filter(s->!(s in Chemin),[j for j in 1:n^2])
-        sommet_accessibles=filter(s->ConditionsFleches[Chemin[end],s]==1,sommet_pas_chemin)
-        
-        if isempty(sommet_accessibles) #si on est bloqués on recommence à 0
-            Chemin=Chemin_0
-        else
-        # Choisir aléatoirement un sommet accessible qui est adjacent au dernier sommet du chemin
-        sommet_suivant = rand(sommet_accessibles)
-         # Ajouter le sommet choisi au chemin
-        push!(Chemin, sommet_suivant)
+    #La matrice de Chemin 
+    @variable(m,C[1:n^2,1:n^2],Bin)
+
+    ##les contraintes 
+
+    #il ne faut qu'un seul successeur
+    for i in 1:n^2
+        @constraint(m,sum(C[i,j] for j in 1:n^2)==1)
+    end
+
+    #il ne faut qu'un seul prédécesseur
+    for j in 1:n^2
+        @constraint(m,sum(C[i,j] for i in 1:n^2)==1)
+    end
+
+    #il ne faut passer que par des chemins existants
+    for k in 1:n*n-1
+        for i in 1:n^2
+            for j in 1:n^2
+                @constraint(m,C[i,k]*C[j,k+1]<=ConditionsFleches[i,j])
+            end
         end
     end
-    #on retourne la liste des cases dans l'ordre du chemin 
-    return Chemin
+
+    #fonction objective constante car on ne cherche à savoir que si il existe une solution
+    @objective(m,Min,1)
+    # Start a chronometer
+    start = time()
+
+    # Solve the model
+    sol=optimize!(m)
+
+    #on retourne le chemin solution 
+    Matrice_Chemin_solution = value.(C)
+
+    Chemin_solution=Vector{Int64}(undef,n^2)
+    for i in 1:n^2
+        for j in 1:n^2
+            if Matrice_Chemin_solution[i,j]==1
+                Chemin_solution[i]=j
+            end
+        end
+    end
+
+    return Chemin_solution
 end
 
 """
@@ -72,13 +99,19 @@ Generate all the instances
 
 Remark: a grid is generated only if the corresponding output file does not already exist
 """
-function generate_MatricesFlèches(n::Int64)
+function generate_MatricesFlèches(n::Int64,contraintes::Bool=false)
     
     #la chaine solution du pb celle qui faut trouver 
     chaine = generateCheminHamiltonien(n)
+    if length(chaine)<n^2
+        println("pas de solution")
+        return
+    end
+
+    #print(chaine)
 
     #matrice avec les chiffres indiquant les flèches du jeu
-    Jeu = Matrix{Int64}(undef,n,n)
+    jeu = Matrix{Int64}(undef,n,n)
 
     #on remplit la matrice jeu avec les flèches correspondant à la chaine solution
     for k in 1:(n^2-1)
@@ -133,9 +166,22 @@ function generate_MatricesFlèches(n::Int64)
         end
     end
 
+    fin= chaine[end] 
+
+    i_f = (fin-1)÷n+1
+    j_f = (fin-1)%n+1
+
+    #la fin 10 nombre non attribuer pour les flèches
+    jeu[i_f,j_f]=10
     #cette condition permet de bloquer la derniere case en tant que case finale 
     #matrice de contraintes
-    Contrainte = Matrix{Int64}(0,n,n)
+    Contrainte = Matrix{Int64}(undef,n,n)
+
+    for i in 1:n
+        for j in 1:n
+            Contrainte[i,j]=0
+        end
+    end
     
     debut=chaine[1]
     fin=chaine[end]
@@ -151,31 +197,51 @@ function generate_MatricesFlèches(n::Int64)
     Contrainte[i_d,j_d]=1
     Contrainte[i_f,j_f]=n^2
     #Si on veut des contraintes en plus permet de s'assurer que la solution est unique
-
-    #on remplit la matrice de contraintes de façon aléatoire 
-    k=Int64(rand(0:n^2/2))
-    while k>0
-        #on tire une case au hasard
-        i= Int64(rand(1:n^2))
-        case_pos_i =Chemin[i]
-        ligne = (case_pos_i-1)÷n+1
-        col = (case_pos_i-1)%n+1
-        #on impose que cette case soit en position i dans le chemin
-        Contrainte[ligne,col]= i
+    if contraintes
+        #on remplit la matrice de contraintes de façon aléatoire 
+        k=Int64(rand(0:n^2/2))
+        while k>0
+            #on tire une case au hasard
+            i= Int64(rand(1:n^2))
+            case_pos_i =chaine[i]
+            ligne = (case_pos_i-1)÷n+1
+            col = (case_pos_i-1)%n+1
+            #on impose que cette case soit en position i dans le chemin
+            Contrainte[ligne,col]= i
+        end
     end
 return jeu, Contrainte
 end
 
 
-function generateDataSet()
-    n=Int64(rand(4:7))
-    Jeu,Contraintes =generate_MatricesFlèches(n)
+function generateDataSet(n::Int64,nb_dataSet::Int64,contraintessup::Bool=false)
 
-    fichier = open(InstanceTest2.txt, "w")
-    write(fichier, string(n))
-    write(fichier, "\n")
-    writecsv(fichier, Jeu)
-    write(fichier, "\n")
-    writecsv(fichier, Contraintes)
-    close(fichier)
+    for h in 1:nb_dataSet
+        filename="data//instanceText_$h.txt"
+        io = open(filename, "w")  # Ouvre le fichier en mode écriture
+        jeu,Contraintes =generate_MatricesFlèches(n,contraintessup)
+        write(io,string(n))
+        write(io,"\n")
+        for i in 1:n
+            for j in 1:n-1
+                write(io, string(jeu[i, j]))  # Écrit l'élément de la matrice dans le fichier
+                write(io, ",")  # Ajoute une virgule entre chaque élément sauf le dernier
+            end
+            write(io, string(jeu[i, n]))
+            write(io,"\n")
+        end
+        
+        write(io,"\n")
+
+        for i in 1:n
+            for j in 1:n-1
+                write(io, string(Contraintes[i, j]))  # Écrit l'élément de la matrice dans le fichier
+                write(io, ",")  # Ajoute une virgule entre chaque élément sauf le dernier
+            end
+            write(io, string(Contraintes[i, n]))
+            write(io,"\n")
+        end   
+        close(io)
+    end
 end
+
